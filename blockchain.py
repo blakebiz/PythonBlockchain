@@ -8,9 +8,9 @@ import requests
 
 
 class Block:
-    def __init__(self, index, previous_block_hash, transaction_list, proof, time_to_mine=0):
+    def __init__(self, index, previous_block_hash, transaction_list, proof, time_to_mine=0, timestamp=None):
         self.index = index
-        self.timestamp = datetime.datetime.utcnow()
+        self.timestamp = timestamp or datetime.datetime.utcnow()
         self.proof = proof
         self.previous_block_hash = previous_block_hash
         self.transaction_list = transaction_list
@@ -65,17 +65,18 @@ class Blockchain:
             if block.previous_block_hash != self.hash(previous_block):
                 return False
             hash_operation = hashlib.sha256(str(block.proof**2 - previous_block.proof**2).encode()).hexdigest()
-            if hash_operation[:4] != "0000":
+            if hash_operation[:nonce_count] != "0" * nonce_count:
                 return False
             previous_block = block
             block_index += 1
         return True
 
-    def add_transaction(self, sender, receiver, amount):
+    def add_transaction(self, sender, receiver, amount, memo=""):
         self.transactions.append({
             "sender": sender,
             "receiver": receiver,
-            "amount": amount
+            "amount": amount,
+            "memo": memo
         })
         previous_block = self.get_latest_block()
         return previous_block.index + 1
@@ -84,18 +85,25 @@ class Blockchain:
         parse_url = urlparse(address)
         self.nodes.add(parse_url.netloc)
 
-
     def replace_chain(self):
         network = self.nodes
         longest_chain = None
         max_length = len(self.chain)
         for node in network:
-            response = requests.get(f"https://{node}/get_chain")
+            response = requests.get(f"http://{node}/get_chain")
             if response.status_code == 200:
-                # TODO make sure this works without replacing quotes
-                length = response.json()["length"]
-                chain = json.loads(response.json()["chain"])
-                chain = [Block(block["index"], block["previous_hash"], block["transactions"], block["proof"], block["work_time"]) for block in chain]
+                js = json.loads(response.text.replace("'", '"'))
+                length = js["length"]
+                chain = js["chain"]
+                chain = [
+                    Block(
+                        block["index"],
+                        block["previous_hash"],
+                        block["transactions"],
+                        block["proof"],
+                        block["work_time"],
+                        block["timestamp"]
+                    ) for block in chain]
                 if length > max_length and self.is_chain_valid(chain):
                     max_length = length
                     longest_chain = chain
