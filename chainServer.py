@@ -1,10 +1,14 @@
-from flask import Flask, jsonify
-from Blockchain.blockchain import Blockchain
+from flask import Flask, jsonify, request
+from blockchain import Blockchain
 import time
 from uuid import uuid4
+import re
 
 # Creating a web app
 app = Flask(__name__)
+
+# set the port #
+PORT = 5000
 
 # Creating an address for the node on Port 5000
 node_address = str(uuid4()).replace('-', '')
@@ -20,6 +24,7 @@ def mine_block():
     proof = blockchain.proof_of_work(previous_proof)
     end = time.time() - start
     previous_hash = blockchain.hash(previous_block)
+    blockchain.add_transaction(sender=node_address, receiver=f"User {PORT}", amount=1, memo="Block Reward.")
     block = blockchain.create_block(proof, previous_hash, end)
     response = {
         "message": "Congratulations, you just mined a block!",
@@ -72,16 +77,48 @@ def avg_mine_time():
 
 
 @app.route("/add_transaction", methods=["POST"])
-def add_transaction(request):
+def add_transaction():
     js = request.get_json()
+    optional_keys = ["memo"]
     transaction_keys = ["sender", "receiver", "amount"]
     if not all (key in js for key in transaction_keys):
         return "some elements of the transaction are missing", 400
-    index = blockchain.add_transaction(*(js[t] for t in transaction_keys))
+    index = blockchain.add_transaction(*(js[t] for t in (transaction_keys + optional_keys)))
     response = {"message": f"This transaction will be added to Block {index}"}
     return jsonify(response), 201
 
 
+@app.route("/connect_node", methods=["POST"])
+def connect_node():
+    js = request.get_json()
+    nodes = js.get("nodes")
+    if nodes is None:
+        return "No node", 400
+    for node in nodes:
+        blockchain.add_node(node)
+    response = {
+        "message": "All the nodes are now connected. This blockchain now contains the following nodes:",
+        "total_nodes": list(blockchain.nodes)
+    }
+    return jsonify(response), 201
+
+
+@app.route("/replace_chain", methods=["POST"])
+def replace_chain():
+    needs_replacing = blockchain.replace_chain(PORT)
+    if needs_replacing:
+        response = {
+            "message": "The node had different chains so it was replaced by the largest one.",
+            "new_chain": [repr(chain) for chain in blockchain.chain]
+        }
+    else:
+        response = {
+            "message": "All good. The chain is the largest one.",
+            "actual_chain": [repr(chain) for chain in blockchain.chain]
+        }
+    return jsonify(response), 200
+
+
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-app.run(host="0.0.0.0", port=5000)
+app.run(host="0.0.0.0", port=PORT)
 
